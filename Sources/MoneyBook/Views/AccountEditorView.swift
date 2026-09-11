@@ -149,7 +149,7 @@ struct AccountEditorView: View {
     private func nextSortOrder() -> Int {
         let descriptor = FetchDescriptor<Account>(sortBy: [SortDescriptor(\.sortOrder, order: .reverse)])
         let highest = (try? context.fetch(descriptor).first?.sortOrder) ?? 0
-        return (highest ?? 0) + 1
+        return highest + 1
     }
 }
 

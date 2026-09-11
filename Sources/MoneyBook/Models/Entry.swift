@@ -13,6 +13,11 @@ final class Entry {
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
 
+    /// 导入来源的稳定标识（例如微信交易单号），用于避免重复导入。
+    var externalID: String?
+    /// 同一次导入的批次标识，便于整批撤销。
+    var importBatchID: UUID?
+
     /// 支出/收入的所属账户；转账时为转出账户。
     var account: Account?
     /// 仅转账使用：转入账户。
@@ -28,6 +33,8 @@ final class Entry {
         account: Account? = nil,
         toAccount: Account? = nil,
         note: String = "",
+        externalID: String? = nil,
+        importBatchID: UUID? = nil,
         createdAt: Date = Date()
     ) {
         self.uuid = UUID()
@@ -38,6 +45,8 @@ final class Entry {
         self.account = account
         self.toAccount = toAccount
         self.note = note
+        self.externalID = externalID
+        self.importBatchID = importBatchID
         self.createdAt = createdAt
         self.updatedAt = createdAt
     }
@@ -58,4 +67,6 @@ final class Entry {
     var isArchivedContent: Bool {
         (account?.isArchived ?? false) || (category?.isArchived ?? false)
     }
+
+    var isImported: Bool { externalID != nil || importBatchID != nil }
 }

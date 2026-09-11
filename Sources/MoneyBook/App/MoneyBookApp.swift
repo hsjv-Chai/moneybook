@@ -10,6 +10,23 @@ struct MoneyBookMain {
             let succeeded = SelfTestRunner.run()
             exit(succeeded ? 0 : 1)
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--import-preview"),
+           index + 1 < CommandLine.arguments.count {
+            let succeeded = BillImportCLI.run(path: CommandLine.arguments[index + 1])
+            exit(succeeded ? 0 : 1)
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--import-debug"),
+           index + 1 < CommandLine.arguments.count {
+            let succeeded = BillImportCLI.debug(path: CommandLine.arguments[index + 1])
+            exit(succeeded ? 0 : 1)
+        }
+        if CommandLine.arguments.contains("--check-store") {
+            exit(BillImportCLI.checkStore() ? 0 : 1)
+        }
+        if let index = CommandLine.arguments.firstIndex(of: "--import-apply"),
+           index + 1 < CommandLine.arguments.count {
+            exit(BillImportCLI.apply(path: CommandLine.arguments[index + 1]) ? 0 : 1)
+        }
         MoneyBookApp.main()
     }
 }
@@ -72,6 +89,9 @@ struct MoneyBookCommands: Commands {
 
             Button("转账…") { appState.showTransfer() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+
+            Button("导入微信账单…") { appState.showBillImporter() }
+                .keyboardShortcut("i", modifiers: .command)
         }
 
         CommandGroup(after: .sidebar) {

@@ -315,8 +315,8 @@ struct CategoryEditorSheet: View {
 
     private func nextSortOrder() -> Int {
         let descriptor = FetchDescriptor<EntryCategory>(sortBy: [SortDescriptor(\.sortOrder, order: .reverse)])
-        let highest = (try? context.fetch(descriptor).first?.sortOrder) ?? nil
-        return (highest ?? 0) + 1
+        let highest = (try? context.fetch(descriptor).first?.sortOrder) ?? 0
+        return highest + 1
     }
 }
 

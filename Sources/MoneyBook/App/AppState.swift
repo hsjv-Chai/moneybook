@@ -6,12 +6,14 @@ enum SheetRoute: Identifiable {
     case entry(Entry?)
     case transfer(Entry?)
     case account(Account?)
+    case importBill
 
     var id: String {
         switch self {
         case .entry(let entry): "entry-\(entry?.uuid.uuidString ?? "new")"
         case .transfer(let entry): "transfer-\(entry?.uuid.uuidString ?? "new")"
         case .account(let account): "account-\(account?.uuid.uuidString ?? "new")"
+        case .importBill: "import-bill"
         }
     }
 }
@@ -52,6 +54,10 @@ final class AppState {
 
     func showAccountEditor(_ account: Account? = nil) {
         activeSheet = .account(account)
+    }
+
+    func showBillImporter() {
+        activeSheet = .importBill
     }
 
     /// 根据流水类型选择合适的编辑界面：转账走转账面板，其余走记账面板。
