@@ -5,3 +5,4 @@ dist/
 *.xcworkspace
 Package.resolved
 Resources/AppIcon.iconset/
+.swiftpm/
