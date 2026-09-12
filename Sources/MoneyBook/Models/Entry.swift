@@ -18,6 +18,11 @@ final class Entry {
     /// 同一次导入的批次标识，便于整批撤销。
     var importBatchID: UUID?
 
+    /// 合并流水时保存被合并掉的原始记录（JSON），用于撤销合并。
+    var mergedSourceData: Data?
+    /// 被合并掉的流水笔数，便于列表直接展示。
+    var mergedSourceCount: Int = 0
+
     /// 支出/收入的所属账户；转账时为转出账户。
     var account: Account?
     /// 仅转账使用：转入账户。
@@ -69,4 +74,7 @@ final class Entry {
     }
 
     var isImported: Bool { externalID != nil || importBatchID != nil }
+
+    /// 是否是合并产生的那一条流水。
+    var isMergeResult: Bool { mergedSourceData != nil }
 }

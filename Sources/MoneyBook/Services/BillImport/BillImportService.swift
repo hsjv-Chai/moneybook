@@ -53,7 +53,7 @@ enum BillImportService {
         guard !parsedRows.isEmpty else { throw BillImportError.noRecordsFound }
 
         let existingEntries = (try? context.fetch(FetchDescriptor<Entry>())) ?? []
-        let existingKeys = Set(existingEntries.compactMap(\.externalID))
+        let existingKeys = existingExternalIDs(in: existingEntries)
         var duplicateKeys: Set<String> = []
 
         // 同一份账单里可能出现重复单号（历史数据或 OCR 截断），按出现次序编号；
@@ -602,9 +602,13 @@ enum BillImportService {
         return parts.joined(separator: " · ")
     }
 
-    private static func existingExternalIDs(in context: ModelContext) -> Set<String> {
-        let entries = (try? context.fetch(FetchDescriptor<Entry>())) ?? []
-        return Set(entries.compactMap(\.externalID))
+    /// 已存在的导入单号；被合并掉的原始流水虽然删除，但单号仍算已导入。
+    static func existingExternalIDs(in entries: [Entry]) -> Set<String> {
+        var keys = Set(entries.compactMap(\.externalID))
+        for entry in entries where entry.isMergeResult {
+            keys.formUnion(EntryMergeService.mergedExternalIDs(of: entry))
+        }
+        return keys
     }
 
     /// 与已有手工记录相比：方向一致、金额相同、时间相差不超过一天，视为疑似同一笔。

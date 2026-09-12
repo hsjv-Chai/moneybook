@@ -11,6 +11,13 @@ struct TransactionsView: View {
 
     @State private var selection = Set<Entry.ID>()
     @State private var pendingDeletion: Entry?
+    @State private var mergeRequest: MergeRequest?
+
+    /// 合并浮层的入参；用 Identifiable 包一层以便 `.sheet(item:)` 驱动。
+    private struct MergeRequest: Identifiable {
+        let id = UUID()
+        let entries: [Entry]
+    }
 
     private var filteredEntries: [Entry] {
         appState.activeFilter.apply(to: entries)
@@ -60,6 +67,20 @@ struct TransactionsView: View {
             prompt: "搜索备注、分类或账户"
         )
         .navigationTitle("流水")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    mergeRequest = MergeRequest(entries: selectedEntries)
+                } label: {
+                    Label("合并所选", systemImage: "arrow.triangle.merge")
+                }
+                .disabled(selectedEntries.count < 2)
+                .help("把选中的多笔流水合并为一条净额流水（AA 对账）")
+            }
+        }
+        .sheet(item: $mergeRequest) { request in
+            MergeEntriesView(entries: request.entries)
+        }
         .alert(
             "删除这笔流水？",
             isPresented: Binding(
@@ -148,9 +169,19 @@ struct TransactionsView: View {
             .width(min: 110, ideal: 150)
 
             TableColumn("备注") { entry in
-                Text(entry.note.isEmpty ? "—" : entry.note)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if entry.isMergeResult {
+                        Text("合并\(entry.mergedSourceCount)笔")
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.16), in: Capsule())
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    Text(entry.note.isEmpty ? "—" : entry.note)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             TableColumn("金额") { entry in
@@ -162,6 +193,14 @@ struct TransactionsView: View {
         .contextMenu(forSelectionType: Entry.ID.self) { _ in
             if let entry = singleSelectedEntry {
                 Button("编辑…") { appState.showEditor(for: entry) }
+            }
+            if selectedEntries.count >= 2 {
+                Button("合并所选（\(selectedEntries.count) 笔）…") {
+                    mergeRequest = MergeRequest(entries: selectedEntries)
+                }
+            }
+            if let entry = singleSelectedEntry, entry.isMergeResult {
+                Button("撤销合并") { undoMerge(entry) }
             }
             if !selectedEntries.isEmpty {
                 Button("删除", role: .destructive) {
@@ -212,6 +251,13 @@ struct TransactionsView: View {
         selection.subtract(targets.map(\.id))
         pendingDeletion = nil
         try? context.save()
+    }
+
+    private func undoMerge(_ entry: Entry) {
+        if let restored = try? EntryMergeService.undo(entry, context: context) {
+            selection.subtract([entry.id])
+            _ = restored
+        }
     }
 
     private func iconName(for entry: Entry) -> String {
