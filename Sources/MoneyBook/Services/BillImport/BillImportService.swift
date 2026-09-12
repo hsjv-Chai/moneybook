@@ -1,37 +1,39 @@
 import Foundation
 import SwiftData
 
-/// 微信账单导入：解析 → 预览 → 落库 → 可整批撤销。
+/// 账单导入（微信支付 / 支付宝）：解析 → 预览 → 落库 → 可整批撤销。
 @MainActor
 enum BillImportService {
-    /// 默认微信资金账户名。
-    static let wechatWalletName = "微信零钱"
-    static let wechatWalletChangeName = "微信零钱通"
-    static let wechatInvestmentName = "微信理财通"
+    /// 微信资金账户名。
+    nonisolated static let wechatWalletName = "微信零钱"
+    nonisolated static let wechatWalletChangeName = "微信零钱通"
+    nonisolated static let wechatInvestmentName = "微信理财通"
+    /// 支付宝资金账户名。
+    nonisolated static let alipayWalletName = "支付宝余额"
+    nonisolated static let alipayYuEBaoName = "余额宝"
+    nonisolated static let alipayHuabeiName = "花呗"
 
     // MARK: - 解析
 
-    nonisolated static func source(for url: URL) throws -> BillSource {
+    nonisolated static func parse(url: URL) throws -> BillParseResult {
         switch url.pathExtension.lowercased() {
-        case "csv", "txt": return .csv
-        case "xlsx": return .xlsx
-        case "pdf": return .pdf
+        case "csv", "txt":
+            guard let data = try? Data(contentsOf: url) else { throw BillImportError.unreadableFile }
+            guard let text = CSVText.decode(data) else { throw BillImportError.unreadableFile }
+            let records = CSVText.records(from: text)
+            let rows = try BillRecords.rows(from: records)
+            guard !rows.isEmpty else { throw BillImportError.noRecordsFound }
+            return BillParseResult(
+                platform: BillPlatform.detect(from: records),
+                source: .csv,
+                rows: rows,
+                summary: BillRecords.summary(from: records)
+            )
+        case "xlsx":
+            return try XLSXBillParser.parse(url: url)
+        case "pdf":
+            return try PDFBillParser.parse(url: url)
         default: throw BillImportError.unsupportedFileType(url.pathExtension.lowercased())
-        }
-    }
-
-    nonisolated static func parse(url: URL) throws -> (source: BillSource, rows: [BillRow], summary: BillSummary?) {
-        let source = try source(for: url)
-        switch source {
-        case .csv:
-            let result = try WeChatCSVParser.parse(url: url)
-            return (source, result.rows, result.summary)
-        case .xlsx:
-            let result = try WeChatXLSXParser.parse(url: url)
-            return (source, result.rows, result.summary)
-        case .pdf:
-            let result = try WeChatPDFParser.parse(url: url)
-            return (source, result.rows, result.summary)
         }
     }
 
@@ -43,11 +45,11 @@ enum BillImportService {
     }
 
     static func makePreview(
-        parsed: (source: BillSource, rows: [BillRow], summary: BillSummary?),
+        parsed: BillParseResult,
         fileName: String,
         context: ModelContext
     ) throws -> BillImportPreview {
-        let (source, parsedRows, summary) = parsed
+        let (platform, source, parsedRows, summary) = (parsed.platform, parsed.source, parsed.rows, parsed.summary)
         guard !parsedRows.isEmpty else { throw BillImportError.noRecordsFound }
 
         let existingEntries = (try? context.fetch(FetchDescriptor<Entry>())) ?? []
@@ -109,7 +111,7 @@ enum BillImportService {
                 possibleDuplicateCount += 1
             }
 
-            let needed = requiredAccounts(for: row)
+            let needed = requiredAccounts(for: row, platform: platform)
             for name in needed.allNames {
                 let existing = planCounts[name]
                 planCounts[name] = (
@@ -161,6 +163,7 @@ enum BillImportService {
         )
 
         return BillImportPreview(
+            platform: platform,
             source: source,
             fileName: fileName,
             rows: rows,
@@ -329,7 +332,7 @@ enum BillImportService {
                     skippedInvalid += 1
                     continue
                 }
-                let movement = transferAccounts(for: row)
+                let movement = transferAccounts(for: row, platform: preview.platform)
                 let from = account(named: movement.from)
                 let to = account(named: movement.to)
                 guard from.uuid != to.uuid else {
@@ -355,7 +358,7 @@ enum BillImportService {
             }
 
             let direction = row.direction ?? .expense
-            let targetName = primaryAccountName(for: row)
+            let targetName = primaryAccountName(for: row, platform: preview.platform)
             let target = account(named: targetName)
 
             let matchedCategory = BillCategorizer.suggestedCategory(
@@ -460,56 +463,73 @@ enum BillImportService {
     }
 
     /// 一条记录需要哪些账户；中性交易需要两个（转出与转入）。
-    static func requiredAccounts(for row: BillRow) -> NeededAccounts {
+    static func requiredAccounts(for row: BillRow, platform: BillPlatform) -> NeededAccounts {
         if row.isNeutralTransaction {
-            let movement = transferAccounts(for: row)
+            let movement = transferAccounts(for: row, platform: platform)
             return NeededAccounts(primary: movement.from, counterparty: movement.to)
         }
-        return NeededAccounts(primary: primaryAccountName(for: row), counterparty: nil)
+        return NeededAccounts(primary: primaryAccountName(for: row, platform: platform), counterparty: nil)
     }
 
-    static func primaryAccountName(for row: BillRow) -> String {
-        accountName(forPaymentMethod: row.paymentMethod)
+    static func primaryAccountName(for row: BillRow, platform: BillPlatform) -> String {
+        accountName(forPaymentMethod: row.paymentMethod, platform: platform)
     }
 
     /// 中性交易的资金流向：充值/提现/信用卡还款/理财通买卖。
-    static func transferAccounts(for row: BillRow) -> AccountMovement {
-        let paymentAccount = accountName(forPaymentMethod: row.paymentMethod)
+    static func transferAccounts(for row: BillRow, platform: BillPlatform = .wechat) -> AccountMovement {
+        let wallet = platform.walletAccountName
+        let paymentAccount = accountName(forPaymentMethod: row.paymentMethod, platform: platform)
         let type = row.transactionType
 
         if type.contains("提现") {
-            return AccountMovement(from: wechatWalletName, to: paymentAccount)
+            return AccountMovement(from: wallet, to: paymentAccount)
         }
         if type.contains("信用卡还款") {
             return AccountMovement(from: paymentAccount, to: creditCardAccountName(from: row.counterparty))
         }
-        if type.contains("理财通") {
+        if platform == .wechat, type.contains("理财通") {
             return type.contains("赎回")
                 ? AccountMovement(from: wechatInvestmentName, to: wechatWalletName)
                 : AccountMovement(from: wechatWalletName, to: wechatInvestmentName)
         }
-        if type.contains("零钱通") {
+        if platform == .wechat, type.contains("零钱通") {
             return type.contains("转出") || type.contains("取出")
                 ? AccountMovement(from: wechatWalletChangeName, to: wechatWalletName)
                 : AccountMovement(from: wechatWalletName, to: wechatWalletChangeName)
         }
-        // 零钱充值以及其他中性交易：资金从支付方式进入微信零钱。
-        let source = paymentAccount == wechatWalletName ? counterpartyAccountName(for: row) : paymentAccount
-        return AccountMovement(from: source, to: wechatWalletName)
+        // 充值以及其他中性交易：资金从支付方式进入平台钱包。
+        let source = paymentAccount == wallet
+            ? counterpartyAccountName(for: row, platform: platform)
+            : paymentAccount
+        return AccountMovement(from: source, to: wallet)
     }
 
-    static func accountName(forPaymentMethod method: String) -> String {
-        let trimmed = tidyAccountName(method)
-        if trimmed.isEmpty || trimmed == "/" || trimmed == "-" { return wechatWalletName }
-        if trimmed.contains("零钱通") { return wechatWalletChangeName }
-        if trimmed.contains("理财通") { return wechatInvestmentName }
-        if trimmed == "零钱" { return wechatWalletName }
-        return trimmed
+    /// 支付方式 → 账户名。
+    /// 支付宝可能写成「账户余额&红包」这类叠加了优惠的方式，先按「&」取主支付方式。
+    nonisolated static func accountName(forPaymentMethod method: String, platform: BillPlatform = .wechat) -> String {
+        let tidied = tidyAccountName(method)
+        let primary = tidied.split(separator: "&").first.map(String.init) ?? tidied
+        let cleaned = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if cleaned.isEmpty || cleaned == "/" || cleaned == "-" { return platform.walletAccountName }
+
+        switch platform {
+        case .wechat:
+            if cleaned.contains("零钱通") { return wechatWalletChangeName }
+            if cleaned.contains("理财通") { return wechatInvestmentName }
+            if cleaned.hasPrefix("零钱") { return wechatWalletName }
+            return cleaned
+        case .alipay:
+            if cleaned.hasPrefix("账户余额") || cleaned == "余额" { return alipayWalletName }
+            if cleaned.contains("余额宝") { return alipayYuEBaoName }
+            if cleaned.contains("花呗") { return alipayHuabeiName }
+            return cleaned
+        }
     }
 
-    private static func counterpartyAccountName(for row: BillRow) -> String {
+    private static func counterpartyAccountName(for row: BillRow, platform: BillPlatform) -> String {
         let name = tidyAccountName(row.counterparty)
-        guard !name.isEmpty, name != "/" else { return wechatWalletName }
+        guard !name.isEmpty, name != "/" else { return platform.walletAccountName }
         return name
     }
 
@@ -523,7 +543,7 @@ enum BillImportService {
     }
 
     /// OCR 常把中文拆得带空格或逗号，这里统一清理成紧凑名称。
-    static func tidyAccountName(_ raw: String) -> String {
+    nonisolated static func tidyAccountName(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         for token in [" ", "\u{00A0}", "，", ",", "、", "。", "．", "·"] {
             name = name.replacingOccurrences(of: token, with: "")
@@ -548,10 +568,15 @@ enum BillImportService {
         let key = normalize(name)
         if let exact = accounts.first(where: { normalize($0.name) == key }) { return exact }
 
-        let stripped = key.replacingOccurrences(of: "微信", with: "")
+        // 「微信零钱」与「零钱」、「支付宝余额」与「余额」视为同一账户。
+        let stripped = key
+            .replacingOccurrences(of: "微信", with: "")
+            .replacingOccurrences(of: "支付宝", with: "")
         guard !stripped.isEmpty else { return nil }
         return accounts.first {
-            normalize($0.name).replacingOccurrences(of: "微信", with: "") == stripped
+            normalize($0.name)
+                .replacingOccurrences(of: "微信", with: "")
+                .replacingOccurrences(of: "支付宝", with: "") == stripped
         }
     }
 

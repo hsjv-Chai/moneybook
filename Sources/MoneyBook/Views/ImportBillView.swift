@@ -66,7 +66,7 @@ struct ImportBillView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("导入微信账单")
                 .font(.title3.weight(.semibold))
-            Text("支持微信导出的 xlsx / CSV（精确）以及由账单生成的 PDF（文字识别，请核对金额）。")
+            Text("支持微信与支付宝导出的 xlsx / CSV（精确）以及由账单生成的 PDF（文字识别，请核对金额）。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -233,7 +233,7 @@ struct ImportBillView: View {
                 .lineLimit(1)
 
             HStack(spacing: 14) {
-                labeledValue("来源", preview.source.title)
+                labeledValue("来源", "\(preview.platform.displayName) · \(preview.source.title)")
                 labeledValue("解析", "\(preview.rows.count) 笔")
                 labeledValue("待导入", "\(summary.count) 笔")
                 if let range = preview.dateRange {

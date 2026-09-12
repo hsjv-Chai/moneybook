@@ -10,6 +10,7 @@ enum BillCategorizer {
     }
 
     static let expenseRules: [Rule] = [
+        Rule(categoryName: "红包", keywords: ["微信红包", "群红包", "发红包", "红包"]),
         Rule(categoryName: "餐饮", keywords: [
             "餐饮", "饭店", "餐厅", "外卖", "美团", "饿了么", "快餐", "小吃", "美食",
             "咖啡", "奶茶", "茶饮", "星巴克", "麦当劳", "肯德基", "汉堡", "烧烤", "火锅",
@@ -49,14 +50,36 @@ enum BillCategorizer {
     ]
 
     static let incomeRules: [Rule] = [
+        Rule(categoryName: "红包", keywords: ["微信红包", "群红包", "红包"]),
         Rule(categoryName: "工资", keywords: ["工资", "薪资", "薪酬", "代发", "劳务"]),
-        Rule(categoryName: "奖金", keywords: ["奖金", "年终", "红包", "奖励", "绩效"]),
+        Rule(categoryName: "奖金", keywords: ["奖金", "年终", "奖励", "绩效"]),
         Rule(categoryName: "理财收益", keywords: ["收益", "利息", "分红", "理财", "基金", "零钱通"]),
         Rule(categoryName: "报销", keywords: ["报销", "补贴", "退款", "返现"]),
     ]
 
+    /// 支付宝账单自带「交易分类」，直接映射到记账分类，比关键词更准。
+    static let platformCategoryMap: [String: String] = [
+        "餐饮美食": "餐饮",
+        "交通出行": "交通",
+        "日用百货": "购物",
+        "服饰装扮": "购物",
+        "数码电器": "购物",
+        "美容美发": "购物",
+        "医疗健康": "医疗",
+        "教育培训": "学习",
+        "文化休闲": "娱乐",
+        "运动户外": "娱乐",
+        "充值缴费": "通讯",
+        "住房物业": "居住",
+    ]
+
     /// 返回建议的分类名；没有命中任何规则时返回 nil。
     static func suggestedCategoryName(for row: BillRow, direction: BillDirection) -> String? {
+        // 优先使用平台自带的分类（支付宝的「交易分类」）。
+        if let mapped = platformCategoryMap[row.transactionType] {
+            return mapped
+        }
+
         let haystack = [
             row.transactionType,
             row.counterparty,

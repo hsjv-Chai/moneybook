@@ -31,7 +31,7 @@ let sampleBillCSV = """
 struct BillCSVParserTests {
     @Test("解析明细行、带引号的字段与金额")
     func parsesRows() throws {
-        let rows = try WeChatCSVParser.rows(fromText: sampleBillCSV)
+        let rows = try BillRecords.rows(from: CSVText.records(from: sampleBillCSV))
         #expect(rows.count == 4)
 
         let first = try #require(rows.first)
@@ -71,7 +71,7 @@ struct BillCSVParserTests {
         交易时间,收/支,交易类型,交易对方,商品,金额(元),支付方式,当前状态,交易单号,商户单号,备注
         2024/3/1 08:00:00,支出,商户消费,早餐店,豆浆,¥5.50,零钱,支付成功,111222333444555,,
         """
-        let rows = try WeChatCSVParser.rows(fromText: text)
+        let rows = try BillRecords.rows(from: CSVText.records(from: text))
         let row = try #require(rows.first)
         #expect(row.transactionType == "商户消费")
         #expect(row.product == "豆浆")
@@ -81,17 +81,17 @@ struct BillCSVParserTests {
 
     @Test("金额解析：千分位、无符号、非法值")
     func parsesAmounts() {
-        #expect(WeChatCSVParser.parseAmount("¥1,234.56") == Decimal(string: "1234.56"))
-        #expect(WeChatCSVParser.parseAmount("45") == Decimal(string: "45"))
-        #expect(WeChatCSVParser.parseAmount("¥1000.00") == Decimal(string: "1000.00"))
-        #expect(WeChatCSVParser.parseAmount("/") == nil)
-        #expect(WeChatCSVParser.parseAmount("") == nil)
+        #expect(BillRecords.parseAmount("¥1,234.56") == Decimal(string: "1234.56"))
+        #expect(BillRecords.parseAmount("45") == Decimal(string: "45"))
+        #expect(BillRecords.parseAmount("¥1000.00") == Decimal(string: "1000.00"))
+        #expect(BillRecords.parseAmount("/") == nil)
+        #expect(BillRecords.parseAmount("") == nil)
     }
 
     @Test("缺少表头时报错")
     func requiresHeader() {
         #expect(throws: (any Error).self) {
-            try WeChatCSVParser.rows(fromText: "没有表头的文件\n内容")
+            try BillRecords.rows(from: CSVText.records(from: "没有表头的文件\n内容"))
         }
     }
 }

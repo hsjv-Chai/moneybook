@@ -81,9 +81,9 @@ enum BillImportCLI {
     static func debug(path: String) -> Bool {
         let url = URL(fileURLWithPath: path)
         do {
-            let (tokens, boundaries) = try WeChatPDFParser.analyze(url: url)
+            let (tokens, boundaries) = try PDFBillParser.analyze(url: url)
             let dumpURL = URL(fileURLWithPath: "/private/tmp/moneybook-gray.png")
-            try? WeChatPDFParser.dumpGrayscale(url: url, to: dumpURL)
+            try? PDFBillParser.dumpGrayscale(url: url, to: dumpURL)
             print("灰度图：\(dumpURL.path)")
             if let boundaries {
                 let text = boundaries.map { String(format: "%.4f", $0) }.joined(separator: ", ")
@@ -109,9 +109,16 @@ enum BillImportCLI {
             return false
         }
 
+        if ProcessInfo.processInfo.environment["MONEYBOOK_IMPORT_TRACE"] == "1" {
+            trace(url: url)
+        }
+
         do {
-            let (source, rows, summary) = try BillImportService.parse(url: url)
-            print("来源：\(source.title)")
+            let parsed = try BillImportService.parse(url: url)
+            let rows = parsed.rows
+            let summary = parsed.summary
+            print("平台：\(parsed.platform.displayName)")
+            print("来源：\(parsed.source.title)")
             print("文件：\(url.lastPathComponent)")
             print("解析出 \(rows.count) 行")
 
@@ -174,7 +181,7 @@ enum BillImportCLI {
             }
 
             for row in rows where row.isNeutralTransaction {
-                let movement = BillImportService.transferAccounts(for: row)
+                let movement = BillImportService.transferAccounts(for: row, platform: parsed.platform)
                 print("转账映射：\(row.transactionType) → \(movement.from) ⇒ \(movement.to)")
             }
             return invalid == 0
@@ -182,6 +189,29 @@ enum BillImportCLI {
             print("解析失败：\(error.localizedDescription)")
             return false
         }
+    }
+
+    /// 诊断：打印解码后的前几行与记录数，用于排查「找不到表头」这类问题。
+    private static func trace(url: URL) {
+        guard let data = try? Data(contentsOf: url) else {
+            print("[trace] 读取失败"); return
+        }
+        print("[trace] 字节数 \(data.count)")
+        if let utf8 = String(data: data, encoding: .utf8) {
+            print("[trace] UTF-8 解码成功，前 60 字：\(utf8.prefix(60))")
+        } else {
+            print("[trace] UTF-8 解码失败（应为 GBK/GB18030）")
+        }
+        guard let text = CSVText.decode(data) else {
+            print("[trace] 解码失败"); return
+        }
+        let records = CSVText.records(from: text)
+        print("[trace] 记录数 \(records.count)")
+        for (index, record) in records.enumerated().prefix(26) {
+            let first = record.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            print("[trace] \(index): 字段数 \(record.count) 首字段「\(first.prefix(24))」")
+        }
+        print("[trace] 表头索引 \(String(describing: BillRecords.headerIndex(in: records)))")
     }
 
     /// 中文按显示宽度对齐会被截断，这里按字符数补空格即可满足阅读需要。

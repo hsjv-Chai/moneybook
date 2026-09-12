@@ -1,6 +1,6 @@
 import Foundation
 
-/// 账单文件来源。
+/// 账单文件形态。
 enum BillSource: String, Sendable {
     case csv
     case xlsx
@@ -8,11 +8,49 @@ enum BillSource: String, Sendable {
 
     var title: String {
         switch self {
-        case .csv: "微信账单 CSV"
-        case .xlsx: "微信账单 xlsx"
-        case .pdf: "微信账单 PDF"
+        case .csv: "账单 CSV"
+        case .xlsx: "账单 xlsx"
+        case .pdf: "账单 PDF"
         }
     }
+}
+
+/// 账单来自哪个平台；两者的列名与账户体系不同。
+enum BillPlatform: String, Sendable {
+    case wechat
+    case alipay
+
+    var displayName: String {
+        switch self {
+        case .wechat: "微信支付"
+        case .alipay: "支付宝"
+        }
+    }
+
+    /// 平台内的资金账户名。
+    var walletAccountName: String {
+        switch self {
+        case .wechat: "微信零钱"
+        case .alipay: "支付宝余额"
+        }
+    }
+
+    /// 从表格的说明与表头判断平台。
+    static func detect(from records: [[String]]) -> BillPlatform {
+        let text = records.prefix(40).map { $0.joined(separator: " ") }.joined(separator: " ")
+        if text.contains("支付宝") || text.contains("收/付款方式") || text.contains("交易订单号") {
+            return .alipay
+        }
+        return .wechat
+    }
+}
+
+/// 一次账单解析的结果。
+struct BillParseResult: Sendable {
+    var platform: BillPlatform
+    var source: BillSource
+    var rows: [BillRow]
+    var summary: BillSummary?
 }
 
 /// 微信账单里一行的收支方向。
@@ -56,6 +94,8 @@ struct BillRow: Identifiable, Hashable, Sendable {
     /// 收/支列可能是「支出」「收入」「/」，也可能缺失。
     var direction: BillDirection? {
         let text = directionText.trimmingCharacters(in: .whitespaces)
+        // 支付宝用「不计收支」表示充值/提现这类中性交易，必须先于「支出」判断。
+        if text.contains("不计收支") { return .neutral }
         if text.contains("支出") { return .expense }
         if text.contains("收入") { return .income }
         if text == "/" || text.isEmpty { return isNeutralTransaction ? .neutral : nil }
@@ -65,6 +105,7 @@ struct BillRow: Identifiable, Hashable, Sendable {
 
     /// 充值、提现、信用卡还款这类不计入收支的交易。
     var isNeutralTransaction: Bool {
+        if directionText.contains("不计收支") { return true }
         let type = transactionType
         let neutralKeywords = ["充值", "提现", "信用卡还款", "理财通", "零钱通", "转入", "转出", "还款"]
         return neutralKeywords.contains { type.contains($0) }
@@ -131,6 +172,7 @@ struct BillSummary: Sendable, Equatable {
 
 /// 导入前的预览结果。
 struct BillImportPreview: Sendable {
+    var platform: BillPlatform
     var source: BillSource
     var fileName: String
     var rows: [BillRow]

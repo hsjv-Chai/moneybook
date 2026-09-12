@@ -13,7 +13,7 @@ enum BillSummaryParser {
         pattern: #"支出[：:]\s*(\d+)\s*笔\s*([\d,]+(?:\.\d+)?)\s*元"#
     )
     private static let neutralPattern = try! NSRegularExpression(
-        pattern: #"中性交易[：:]\s*(\d+)\s*笔\s*([\d,]+(?:\.\d+)?)\s*元"#
+        pattern: #"(?:中性交易|不计收支)[：:]\s*(\d+)\s*笔\s*([\d,]+(?:\.\d+)?)\s*元"#
     )
 
     static func parse(lines: [String]) -> BillSummary? {

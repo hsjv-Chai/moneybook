@@ -7,12 +7,12 @@ import Vision
 ///
 /// 这类 PDF 的内嵌字体常常缺少可用的 ToUnicode 映射，直接抽取文本会得到乱码，
 /// 因此改为渲染页面后走 Vision 文字识别，再用表格网格重建行列。
-enum WeChatPDFParser {
+enum PDFBillParser {
     /// 渲染倍率：太低会影响识别准确率，太高会拖慢处理。
     private static let renderScale: CGFloat = 3
     private static let maximumPixelDimension: CGFloat = 4200
 
-    static func parse(url: URL) throws -> (rows: [BillRow], summary: BillSummary?) {
+    static func parse(url: URL) throws -> BillParseResult {
         guard let document = PDFDocument(url: url) else { throw BillImportError.unreadableFile }
         guard document.pageCount > 0 else { throw BillImportError.noRecordsFound }
 
@@ -48,7 +48,12 @@ enum WeChatPDFParser {
             throw BillImportError.pdfRecognitionFailed("没有识别到任何文字")
         }
         guard !rows.isEmpty else { throw BillImportError.noRecordsFound }
-        return (rows, BillSummaryParser.parse(lines: summaryLines))
+        return BillParseResult(
+            platform: .wechat,
+            source: .pdf,
+            rows: rows,
+            summary: BillSummaryParser.parse(lines: summaryLines)
+        )
     }
 
     /// 表头之上的说明文字（含「收入：4 笔 380.00 元」这类汇总）。

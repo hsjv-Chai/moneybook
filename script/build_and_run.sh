@@ -14,7 +14,9 @@ APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_BINARY="$APP_MACOS/$APP_NAME"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+ICON_FILE="$ROOT_DIR/Resources/AppIcon.icns"
 
 # 本机 Xcode 未通过 xcode-select 选中，且 SwiftPM 默认缓存目录位于 $HOME（沙箱不可写），
 # 因此显式指定工具链并把全部缓存重定向到项目内的 .build 目录。
@@ -46,9 +48,16 @@ stage_bundle() {
   build_binary="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)/$APP_NAME"
 
   rm -rf "$APP_BUNDLE"
-  mkdir -p "$APP_MACOS"
+  mkdir -p "$APP_MACOS" "$APP_RESOURCES"
   cp "$build_binary" "$APP_BINARY"
   chmod +x "$APP_BINARY"
+
+  # 应用图标：由 script/make_app_icon.swift 生成，随包一起分发。
+  if [[ -f "$ICON_FILE" ]]; then
+    cp "$ICON_FILE" "$APP_RESOURCES/AppIcon.icns"
+  else
+    echo "提示：缺少 $ICON_FILE，可运行 swift script/make_app_icon.swift Resources 生成" >&2
+  fi
 
   cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -63,6 +72,8 @@ stage_bundle() {
   <string>$APP_NAME</string>
   <key>CFBundleDisplayName</key>
   <string>$DISPLAY_NAME</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -124,8 +135,14 @@ case "$MODE" in
   --test|test)
     swift test "${SWIFT_ARGS[@]}"
     ;;
+  --icon|icon)
+    # 重新生成应用图标：脚本绘制 → iconutil 打包成 .icns
+    swift "$ROOT_DIR/script/make_app_icon.swift" "$ROOT_DIR/Resources"
+    iconutil -c icns "$ROOT_DIR/Resources/AppIcon.iconset" -o "$ROOT_DIR/Resources/AppIcon.icns"
+    echo "已生成 Resources/AppIcon.icns"
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--selftest|--test]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--selftest|--test|--icon]" >&2
     exit 2
     ;;
 esac

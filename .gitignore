@@ -4,3 +4,4 @@ dist/
 *.xcodeproj
 *.xcworkspace
 Package.resolved
+Resources/AppIcon.iconset/

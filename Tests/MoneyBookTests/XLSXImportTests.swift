@@ -285,7 +285,7 @@ struct XLSXReaderTests {
         #expect(records.count == 4)
         #expect(records[1][0] == "交易时间")
 
-        let rows = try WeChatBillRecords.rows(from: records)
+        let rows = try BillRecords.rows(from: records)
         #expect(rows.count == 2)
 
         let first = rows[0]
@@ -305,7 +305,7 @@ struct XLSXReaderTests {
         #expect(second.status == "已存入零钱")
 
         // 账单自带汇总也能从 xlsx 里读出来。
-        let summary = try #require(WeChatBillRecords.summary(from: records))
+        let summary = try #require(BillRecords.summary(from: records))
         #expect(summary.totalCount == 2)
         #expect(summary.incomeTotal == Decimal(string: "100.00"))
         #expect(summary.expenseTotal == Decimal(string: "25.80"))

@@ -1,43 +1,12 @@
 import Foundation
 
-/// 解析微信支付账单 CSV / TXT（官方「用于个人对账」导出的文件）。
-///
-/// 表格到账单行的映射与 xlsx 共用，见 `WeChatBillRecords`。
-enum WeChatCSVParser {
-    static func parse(url: URL) throws -> (rows: [BillRow], summary: BillSummary?) {
-        guard let data = try? Data(contentsOf: url) else { throw BillImportError.unreadableFile }
-        guard let text = decode(data) else { throw BillImportError.unreadableFile }
-
-        let records = records(from: text)
-        let rows = try WeChatBillRecords.rows(from: records)
-        guard !rows.isEmpty else { throw BillImportError.noRecordsFound }
-        return (rows, WeChatBillRecords.summary(from: records))
-    }
-
-    static func rows(fromText text: String) throws -> [BillRow] {
-        try WeChatBillRecords.rows(from: records(from: text))
-    }
-
-    static func rows(fromRecords records: [[String]]) throws -> [BillRow] {
-        try WeChatBillRecords.rows(from: records)
-    }
-
-    static func parseAmount(_ text: String) -> Decimal? {
-        WeChatBillRecords.parseAmount(text)
-    }
-
-    static func records(from text: String) -> [[String]] {
-        let delimiter: Character = looksTabSeparated(text) ? "\t" : ","
-        return csvRecords(from: text, delimiter: delimiter)
-    }
-
-    // MARK: - 解码
-
+/// CSV / TXT 账单文本的解码与词法解析（微信与支付宝导出都是这种结构）。
+enum CSVText {
+    /// 微信是 UTF-8（带 BOM），支付宝导出多为 GB18030。
     static func decode(_ data: Data) -> String? {
         if let text = String(data: data, encoding: .utf8) {
             return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
         }
-        // 早期导出的账单可能是 GB18030 编码。
         let gbEncoding = String.Encoding(
             rawValue: CFStringConvertEncodingToNSStringEncoding(
                 CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
@@ -47,6 +16,11 @@ enum WeChatCSVParser {
         return String(data: data, encoding: .utf16)
     }
 
+    static func records(from text: String) -> [[String]] {
+        let delimiter: Character = looksTabSeparated(text) ? "\t" : ","
+        return records(from: text, delimiter: delimiter)
+    }
+
     private static func looksTabSeparated(_ text: String) -> Bool {
         guard let headerLine = text.split(whereSeparator: \.isNewline).first(where: { $0.contains("交易时间") }) else {
             return false
@@ -54,9 +28,8 @@ enum WeChatCSVParser {
         return headerLine.filter { $0 == "\t" }.count > headerLine.filter { $0 == "," }.count
     }
 
-    // MARK: - CSV 词法
-
-    static func csvRecords(from text: String, delimiter: Character) -> [[String]] {
+    /// RFC4180 风格解析：支持引号包裹、字段内逗号与换行、CRLF。
+    static func records(from text: String, delimiter: Character) -> [[String]] {
         var records: [[String]] = []
         var fields: [String] = []
         var field = ""
@@ -91,22 +64,16 @@ enum WeChatCSVParser {
                 } else {
                     field.append(character)
                 }
+            } else if character == "\"" {
+                insideQuotes = true
+            } else if character == delimiter {
+                endField()
+            } else if character.isNewline {
+                // 注意：Swift 里 "\r\n" 是单个 Character，必须用 isNewline 覆盖
+                // \n、\r 与 CRLF 三种换行，否则 CRLF 行不会被切断。
+                endRecord()
             } else {
-                switch character {
-                case "\"":
-                    insideQuotes = true
-                case delimiter:
-                    endField()
-                case "\r":
-                    if text.index(after: index) < text.endIndex, text[text.index(after: index)] == "\n" {
-                        index = text.index(after: index)
-                    }
-                    endRecord()
-                case "\n":
-                    endRecord()
-                default:
-                    field.append(character)
-                }
+                field.append(character)
             }
 
             index = text.index(after: index)

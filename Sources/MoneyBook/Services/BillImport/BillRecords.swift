@@ -3,7 +3,7 @@ import Foundation
 /// 把「行 × 列」的原始表格（来自 CSV 或 xlsx）解析成微信账单行。
 ///
 /// 两种导出格式的列名与列顺序一致，所以这里只按列名取值，两处复用同一套规则。
-enum WeChatBillRecords {
+enum BillRecords {
     static func headerIndex(in records: [[String]]) -> Int? {
         records.firstIndex { record in
             record.contains { normalizeHeader($0) == "交易时间" }
@@ -68,15 +68,15 @@ enum WeChatBillRecords {
         for (index, name) in header.enumerated() {
             switch true {
             case name == "交易时间": map.date = index
-            case name == "交易类型": map.transactionType = index
+            case name == "交易类型" || name == "交易分类": map.transactionType = index
             case name == "交易对方": map.counterparty = index
-            case name == "商品": map.product = index
+            case name == "商品" || name == "商品说明": map.product = index
             case name == "收/支" || name == "收支": map.direction = index
             case name.hasPrefix("金额"): map.amount = index
-            case name == "支付方式": map.paymentMethod = index
+            case name == "支付方式" || name == "收/付款方式": map.paymentMethod = index
             case name == "当前状态" || name == "交易状态": map.status = index
-            case name == "交易单号": map.transactionID = index
-            case name == "商户单号": map.merchantID = index
+            case name == "交易单号" || name == "交易订单号": map.transactionID = index
+            case name == "商户单号" || name == "商家订单号": map.merchantID = index
             case name == "备注": map.remark = index
             default: break
             }
