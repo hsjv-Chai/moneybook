@@ -5,6 +5,15 @@ import UniformTypeIdentifiers
 
 /// 微信账单导入面板：选择文件 → 预览核对 → 导入 → 可整批撤销。
 struct ImportBillView: View {
+    /// 允许选择账单文件类型：xlsx、CSV/TXT、PDF。
+    static let allowedContentTypes: [UTType] = {
+        var types: [UTType] = [.commaSeparatedText, .plainText, .pdf]
+        if let xlsx = UTType(filenameExtension: "xlsx") {
+            types.insert(xlsx, at: 0)
+        }
+        return types
+    }()
+
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Query(sort: [SortDescriptor(\EntryCategory.sortOrder)]) private var categories: [EntryCategory]
@@ -57,7 +66,7 @@ struct ImportBillView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("导入微信账单")
                 .font(.title3.weight(.semibold))
-            Text("支持微信导出的账单 CSV（精确）以及由账单生成的 PDF（文字识别，请核对金额）。")
+            Text("支持微信导出的 xlsx / CSV（精确）以及由账单生成的 PDF（文字识别，请核对金额）。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -394,8 +403,8 @@ struct ImportBillView: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.commaSeparatedText, .plainText, .pdf]
-        panel.message = "选择微信账单文件（CSV 或 PDF）"
+        panel.allowedContentTypes = ImportBillView.allowedContentTypes
+        panel.message = "选择微信账单文件（xlsx / CSV / PDF）"
         panel.prompt = "导入"
 
         guard panel.runModal() == .OK, let url = panel.url else { return }

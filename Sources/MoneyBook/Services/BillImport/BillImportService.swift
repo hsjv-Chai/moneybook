@@ -14,6 +14,7 @@ enum BillImportService {
     nonisolated static func source(for url: URL) throws -> BillSource {
         switch url.pathExtension.lowercased() {
         case "csv", "txt": return .csv
+        case "xlsx": return .xlsx
         case "pdf": return .pdf
         default: throw BillImportError.unsupportedFileType(url.pathExtension.lowercased())
         }
@@ -24,6 +25,9 @@ enum BillImportService {
         switch source {
         case .csv:
             let result = try WeChatCSVParser.parse(url: url)
+            return (source, result.rows, result.summary)
+        case .xlsx:
+            let result = try WeChatXLSXParser.parse(url: url)
             return (source, result.rows, result.summary)
         case .pdf:
             let result = try WeChatPDFParser.parse(url: url)
@@ -46,7 +50,8 @@ enum BillImportService {
         let (source, parsedRows, summary) = parsed
         guard !parsedRows.isEmpty else { throw BillImportError.noRecordsFound }
 
-        let existingKeys = existingExternalIDs(in: context)
+        let existingEntries = (try? context.fetch(FetchDescriptor<Entry>())) ?? []
+        let existingKeys = Set(existingEntries.compactMap(\.externalID))
         var duplicateKeys: Set<String> = []
 
         // 同一份账单里可能出现重复单号（历史数据或 OCR 截断），按出现次序编号；
@@ -70,6 +75,7 @@ enum BillImportService {
         var fileNeutralTotal = Decimal.zero
         var invalidCount = 0
         var refundedCount = 0
+        var possibleDuplicateCount = 0
         var dates: [Date] = []
         var planCounts: [String: (count: Int, paymentMethod: String)] = [:]
 
@@ -97,6 +103,11 @@ enum BillImportService {
             }
 
             dates.append(date)
+
+            // 手工录入的流水没有单号，只能按「金额相同 + 时间相近」给出疑似重复提醒。
+            if existingEntries.contains(where: { isLikelySameTransaction($0, row: row, date: date) }) {
+                possibleDuplicateCount += 1
+            }
 
             let needed = requiredAccounts(for: row)
             for name in needed.allNames {
@@ -134,6 +145,11 @@ enum BillImportService {
         if invalidCount > 0 { warnings.append("\(invalidCount) 条记录缺少日期或金额，将跳过。") }
         if refundedCount > 0 { warnings.append("\(refundedCount) 条记录状态为退款/关闭/失败，默认跳过。") }
         if duplicateKeys.count > 0 { warnings.append("\(duplicateKeys.count) 条记录已经导入过，将跳过。") }
+        if possibleDuplicateCount > 0 {
+            warnings.append(
+                "\(possibleDuplicateCount) 条记录与已有流水金额、时间相近，可能是同一笔，导入后请留意是否重复。"
+            )
+        }
         warnings.append(
             contentsOf: BillSummaryParser.discrepancyWarnings(
                 summary: summary,
@@ -564,6 +580,14 @@ enum BillImportService {
     private static func existingExternalIDs(in context: ModelContext) -> Set<String> {
         let entries = (try? context.fetch(FetchDescriptor<Entry>())) ?? []
         return Set(entries.compactMap(\.externalID))
+    }
+
+    /// 与已有手工记录相比：方向一致、金额相同、时间相差不超过一天，视为疑似同一笔。
+    static func isLikelySameTransaction(_ entry: Entry, row: BillRow, date: Date) -> Bool {
+        guard let amount = row.amount, entry.amount == amount else { return false }
+        let kind = row.isNeutralTransaction ? EntryKind.transfer : (row.direction == .income ? .income : .expense)
+        guard entry.kind == kind else { return false }
+        return abs(entry.date.timeIntervalSince(date)) <= 86_400
     }
 
     private static func category(

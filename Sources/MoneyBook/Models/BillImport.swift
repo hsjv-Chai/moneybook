@@ -3,11 +3,13 @@ import Foundation
 /// 账单文件来源。
 enum BillSource: String, Sendable {
     case csv
+    case xlsx
     case pdf
 
     var title: String {
         switch self {
         case .csv: "微信账单 CSV"
+        case .xlsx: "微信账单 xlsx"
         case .pdf: "微信账单 PDF"
         }
     }
@@ -182,6 +184,7 @@ enum BillImportError: LocalizedError, Equatable {
     case unsupportedFileType(String)
     case noRecordsFound
     case pdfRecognitionFailed(String)
+    case spreadsheetReadFailed(String)
     case nothingToImport
 
     var errorDescription: String? {
@@ -189,11 +192,13 @@ enum BillImportError: LocalizedError, Equatable {
         case .unreadableFile:
             "无法读取该文件，请确认文件没有损坏。"
         case .unsupportedFileType(let ext):
-            "暂不支持 .\(ext) 文件。请导入微信导出的 CSV，或由账单生成的 PDF。"
+            "暂不支持 .\(ext) 文件。请导入微信导出的 xlsx / CSV，或由账单生成的 PDF。"
         case .noRecordsFound:
             "没有在文件里找到账单明细，请确认这是微信支付账单。"
         case .pdfRecognitionFailed(let reason):
             "PDF 文字识别失败：\(reason)"
+        case .spreadsheetReadFailed(let reason):
+            "读取表格失败：\(reason)"
         case .nothingToImport:
             "没有可导入的记录。"
         }

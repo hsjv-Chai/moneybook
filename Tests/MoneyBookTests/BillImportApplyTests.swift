@@ -172,6 +172,29 @@ struct BillImportTests {
         #expect(BillCategorizer.suggestedCategory(for: unknown, direction: .expense, categories: categories) == nil)
     }
 
+    @Test("常见商户关键词能落到对应分类")
+    func categorizesCommonMerchants() throws {
+        let context = try makeBillContext()
+        let categories = try context.fetch(FetchDescriptor<EntryCategory>())
+
+        func category(_ counterparty: String, _ product: String) -> String? {
+            var row = BillRow(sourceLine: 1)
+            row.counterparty = counterparty
+            row.product = product
+            return BillCategorizer.suggestedCategory(for: row, direction: .expense, categories: categories)?.name
+        }
+
+        #expect(category("上海交通大学", "闵行二餐牛百碗") == "餐饮")
+        #expect(category("luckin coffee", "订单付款") == "餐饮")
+        #expect(category("喜茶", "喜茶(上海静安大悦城店)") == "餐饮")
+        #expect(category("上海交通大学", "学生公寓公共浴室") == "居住")
+        #expect(category("智云悦购", "先购后付") == "购物")
+        #expect(category("携程旅行网", "途家订单") == "娱乐")
+        #expect(category("高德打车", "高德打车订单") == "交通")
+        // 微信转账没有商户信息，不应被误分类。
+        #expect(category("崔宸轩 (尘曲)", "转账备注:微信转账") == nil)
+    }
+
     @Test("汇总不符时提示，小额优惠差异不提示")
     func validatesAgainstSummary() {
         let summary = BillSummary(
